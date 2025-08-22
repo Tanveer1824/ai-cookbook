@@ -1,0 +1,5 @@
+openai==1.66.2
+azure-identity
+azure-keyvault-secrets
+pydantic
+instructor

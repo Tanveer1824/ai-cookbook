@@ -1,0 +1,14 @@
+requests
+ipykernel
+python-dotenv
+openai
+pydantic
+docling
+lancedb
+streamlit
+tiktoken
+azure-identity
+azure-keyvault-secrets
+plotly
+pandas
+numpy
