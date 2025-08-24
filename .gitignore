@@ -29,7 +29,7 @@ wheels/
 .streamlit/secrets.toml
 
 # Database
-data/
+
 *.db
 *.sqlite
 
