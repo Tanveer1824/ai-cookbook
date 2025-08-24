@@ -119,6 +119,12 @@ def get_chat_response(messages, context: str) -> str:
       * Include relevant examples if available
       * Keep to 3-5 key points maximum
     
+    VISUALIZATION REQUESTS:
+    - When users ask for charts, graphs, or visualizations:
+      * Provide a brief summary of the data that will be visualized
+      * Mention that a chart has been generated and displayed
+      * Keep the text response concise since the chart shows the data
+    
     Context from KFH Real Estate Report 2025 Q1:
     {context}
     
@@ -141,8 +147,8 @@ def get_chat_response(messages, context: str) -> str:
     response = st.write_stream(stream)
     return response
 
-def extract_data_for_visualization(text: str) -> Dict[str, Any]:
-    """Extract structured data from text for visualization"""
+def extract_data_for_visualization(text: str, user_request: str = "") -> Dict[str, Any]:
+    """Extract structured data from text for visualization with user request context"""
     data = {
         'categories': [],
         'values': [],
@@ -151,33 +157,76 @@ def extract_data_for_visualization(text: str) -> Dict[str, Any]:
         'title': 'Real Estate Data Visualization'
     }
     
-    # Enhanced patterns for real estate financial data
+    user_request_lower = user_request.lower()
+    
+    # Check if user is asking for specific data types
+    is_investment_housing = any(term in user_request_lower for term in ['investment housing', 'investment residential', 'investment property'])
+    is_rental_values = any(term in user_request_lower for term in ['rental values', 'rental value', 'rent values', 'rent value'])
+    is_specific_sector = any(term in user_request_lower for term in ['private housing', 'commercial', 'industrial', 'coastline'])
+    
+    # Enhanced patterns for real estate financial data - more specific to avoid duplicates
     patterns = [
-        # Standard patterns
-        r'([^:=\n]+)[:=]\s*([\d,]+\.?\d*)',  # Category: Value
-        r'([^=\n]+)=\s*([\d,]+\.?\d*)',      # Category = Value
-        r'([^,\n]+),\s*([\d,]+\.?\d*)',      # Category, Value
+        # Investment housing specific patterns (highest priority)
+        r'Investment\s*Housing[:\s]*([\d,]+\.?\d*)',                        # Investment Housing: 25.12
+        r'Investment\s*Residential[:\s]*([\d,]+\.?\d*)',                    # Investment Residential: 25.12
+        r'Investment\s*Property[:\s]*([\d,]+\.?\d*)',                       # Investment Property: 25.12
+        r'([^:]+?)\s*Investment[:\s]*([\d,]+\.?\d*)',                       # Q1 2025, Investment: 25.12
+        r'Q(\d)\s*(\d{4})[,\s]*Investment[:\s]*([\d,]+\.?\d*)',            # Q1 2025, Investment: 25.12
+        
+        # Private housing patterns
+        r'Private\s*Housing[:\s]*([\d,]+\.?\d*)',                           # Private Housing: 38.63
+        r'Private\s*Residential[:\s]*([\d,]+\.?\d*)',                       # Private Residential: 38.63
+        
+        # Commercial patterns
+        r'Commercial[:\s]*([\d,]+\.?\d*)',                                  # Commercial: 18.45
+        
+        # Coastline patterns
+        r'Coastline[:\s]*([\d,]+\.?\d*)',                                   # Coastline: 12.80
+        
+        # Industrial patterns
+        r'Industrial[:\s]*([\d,]+\.?\d*)',                                  # Industrial: 5.00
+        
+        # Time-based patterns for trends (only if user asks for trends)
+        r'Q(\d)\s*(\d{4})[:\s]*([\d,]+\.?\d*)',                            # Q1 2025: 425.8
+        r'(\d{4})\s*Q(\d)[:\s]*([\d,]+\.?\d*)',                            # 2025 Q1: 425.8
+        
+        # Standard patterns (lower priority)
+        r'([^:=\n]+)[:=]\s*([\d,]+\.?\d*)',                                # Category: Value
+        r'([^=\n]+)=\s*([\d,]+\.?\d*)',                                     # Category = Value
         
         # Real estate specific patterns
         r'([^:]+?)\s*Credit\s*directed:\s*KD\s*([\d,]+\.?\d*)\s*billion',  # Credit directed: KD X.X billion
-        r'([^:]+?)\s*Credit\s*directed:\s*([\d,]+\.?\d*)',                  # Credit directed: X.X
         r'([^:]+?)\s*Share:\s*([\d,]+\.?\d*)%',                             # Share: X.X%
         r'([^:]+?)\s*Total:\s*KD\s*([\d,]+\.?\d*)\s*billion',               # Total: KD X.X billion
-        r'([^:]+?)\s*Total:\s*([\d,]+\.?\d*)\s*billion',                    # Total: X.X billion
-        r'([^:]+?)\s*KD\s*([\d,]+\.?\d*)\s*billion',                        # KD X.X billion
         r'([^:]+?)\s*([\d,]+\.?\d*)\s*billion',                             # X.X billion
         r'([^:]+?)\s*([\d,]+\.?\d*)\s*million',                             # X.X million
-        r'([^:]+?)\s*([\d,]+\.?\d*)\s*thousand',                            # X.X thousand
         r'([^:]+?)\s*([\d,]+\.?\d*)%',                                      # X.X%
-        r'([^:]+?)\s*([\d,]+\.?\d*)\s*units',                               # X.X units
-        r'([^:]+?)\s*([\d,]+\.?\d*)\s*properties',                          # X.X properties
     ]
     
     for pattern in patterns:
         matches = re.findall(pattern, text)
         for match in matches:
-            category = match[0].strip()
-            value_str = match[1].replace(',', '')
+            if len(match) == 1:
+                # Single value pattern (like Investment Housing: 25.12)
+                category = "Investment Housing" if "Investment" in pattern else "Unknown"
+                value_str = match[0].replace(',', '')
+            elif len(match) == 2:
+                # Two-value pattern (like Category: Value or Q1 2025, Investment: 25.12)
+                category = match[0].strip()
+                value_str = match[1].replace(',', '')
+            elif len(match) == 3:
+                # Time-based pattern (like Q1 2025: 425.8 or Q1 2025, Investment: 25.12)
+                if 'Investment' in pattern:
+                    category = f"Q{match[0]} {match[1]} Investment"
+                    value_str = match[2].replace(',', '')
+                elif 'Q' in pattern:
+                    category = f"Q{match[0]} {match[1]}"
+                    value_str = match[2].replace(',', '')
+                else:
+                    category = f"{match[0]} Q{match[1]}"
+                    value_str = match[2].replace(',', '')
+            else:
+                continue
             
             try:
                 value = float(value_str)
@@ -190,11 +239,43 @@ def extract_data_for_visualization(text: str) -> Dict[str, Any]:
                     if (len(category) > 3 and 
                         not any(skip in category.lower() for skip in ['source:', 'page', 'file', 'pdf', 'report', 'title'])):
                         
-                        # Avoid duplicates
-                        if category not in data['categories']:
-                            data['categories'].append(category)
-                            data['values'].append(value)
-                            data['labels'].append(f"{category}: {value:,.2f}")
+                        # If user is asking for specific data, prioritize relevant matches
+                        is_relevant = False
+                        if is_investment_housing:
+                            # For investment housing requests, only include investment-related data
+                            if any(term in category.lower() for term in ['investment']):
+                                is_relevant = True
+                            # Include housing/residential data only if it's explicitly investment-related
+                            elif any(term in category.lower() for term in ['housing', 'residential', 'property']) and 'investment' in category.lower():
+                                is_relevant = True
+                            # Include time-based data only if it's explicitly investment-related in the same context
+                            elif any(term in category.lower() for term in ['q1', 'q2', 'q3', 'q4']) and ('investment' in category.lower() or 'investment' in text.lower()):
+                                is_relevant = True
+                        elif is_rental_values:
+                            # For rental values requests, prioritize rental and time-based data
+                            if any(term in category.lower() for term in ['rental', 'rent', 'value', 'price']):
+                                is_relevant = True
+                            elif any(term in category.lower() for term in ['q1', 'q2', 'q3', 'q4']):
+                                is_relevant = True
+                        elif is_specific_sector:
+                            # For specific sector requests, only include that sector
+                            if any(term in category.lower() for term in ['private', 'commercial', 'industrial', 'coastline']):
+                                is_relevant = True
+                        else:
+                            is_relevant = True  # Include all data if no specific request
+                        
+                        if is_relevant:
+                            # Avoid duplicates more strictly
+                            if category not in data['categories'] and not any(cat in category for cat in data['categories']):
+                                # Additional filtering for investment housing requests
+                                if is_investment_housing:
+                                    # Skip market segment data when asking for investment housing
+                                    if any(term in category.lower() for term in ['private', 'commercial', 'industrial', 'coastline']):
+                                        continue
+                                
+                                data['categories'].append(category)
+                                data['values'].append(value)
+                                data['labels'].append(f"{category}: {value:,.2f}")
             except ValueError:
                 continue
     
@@ -203,7 +284,7 @@ def extract_data_for_visualization(text: str) -> Dict[str, Any]:
         real_estate_keywords = [
             'real estate', 'construction', 'housing', 'credit', 'facilities', 
             'instalment', 'private', 'model', 'total', 'residential', 'commercial',
-            'investment', 'development', 'market', 'price', 'value'
+            'investment', 'development', 'market', 'price', 'value', 'rental'
         ]
         
         for keyword in real_estate_keywords:
@@ -235,8 +316,26 @@ def extract_data_for_visualization(text: str) -> Dict[str, Any]:
     
     return data
 
-def create_visualization(data: Dict[str, Any], chart_type: str = 'bar') -> go.Figure:
-    """Create visualization based on data and chart type"""
+def create_visualization(data: Dict[str, Any], chart_type: str = 'bar', user_request: str = "") -> go.Figure:
+    """Create visualization based on data and chart type with user request context"""
+    # Generate a more specific title based on user request
+    if user_request:
+        user_request_lower = user_request.lower()
+        if 'investment housing' in user_request_lower:
+            title = f"{chart_type.title()} Chart - Investment Housing Data"
+        elif 'rental values' in user_request_lower or 'rental value' in user_request_lower:
+            title = f"{chart_type.title()} Chart - Rental Values"
+        elif 'private housing' in user_request_lower:
+            title = f"{chart_type.title()} Chart - Private Housing Data"
+        elif 'commercial' in user_request_lower:
+            title = f"{chart_type.title()} Chart - Commercial Real Estate Data"
+        elif 'trends' in user_request_lower or 'over time' in user_request_lower:
+            title = f"{chart_type.title()} Chart - Trends Over Time"
+        else:
+            title = f"{chart_type.title()} Chart - Real Estate Data"
+    else:
+        title = f"{chart_type.title()} Chart - Real Estate Data"
+    
     if chart_type == 'pie':
         fig = go.Figure(data=[
             go.Pie(
@@ -271,6 +370,16 @@ def create_visualization(data: Dict[str, Any], chart_type: str = 'bar') -> go.Fi
                 )
             )
         ])
+    elif chart_type == 'area':
+        fig = go.Figure(data=[
+            go.Scatter(
+                x=data['categories'],
+                y=data['values'],
+                fill='tonexty',
+                fillcolor='rgba(55, 83, 109, 0.3)',
+                line=dict(color='rgb(55, 83, 109)', width=2)
+            )
+        ])
     else:  # Default to bar chart
         fig = go.Figure(data=[
             go.Bar(
@@ -286,7 +395,7 @@ def create_visualization(data: Dict[str, Any], chart_type: str = 'bar') -> go.Fi
     # Ensure chart is readable
     if len(data['categories']) > 0:
         fig.update_layout(
-            title=f"{chart_type.title()} Chart - Real Estate Data",
+            title=title,
             template="plotly_white",
             height=400,
             xaxis_title="Categories",
@@ -308,47 +417,63 @@ def create_visualization(data: Dict[str, Any], chart_type: str = 'bar') -> go.Fi
     return fig
 
 def detect_visualization_request(user_input: str) -> bool:
-    """Detect if user wants a visualization - only for explicit requests"""
+    """Detect if user wants a visualization - improved detection for rental trends and charts"""
     user_input_lower = user_input.lower()
     
-    # STRICT: Only detect visualization for VERY explicit chart/graph requests
-    # These are the ONLY keywords that should trigger visualization
-    explicit_visualization_keywords = [
+    # Enhanced visualization keywords including rental trends
+    visualization_keywords = [
+        # Explicit chart requests
         'create chart', 'make chart', 'show chart', 'display chart',
         'create graph', 'make graph', 'show graph', 'display graph',
         'create plot', 'make plot', 'show plot', 'display plot',
         'draw chart', 'draw graph', 'draw plot',
         'visualize', 'visualise', 'visualization', 'visualisation',
         'chart of', 'graph of', 'plot of',
+        
+        # Chart types
         'bar chart', 'pie chart', 'line chart', 'scatter plot',
-        'heatmap', 'histogram'
+        'heatmap', 'histogram', 'area chart',
+        
+        # Rental and trend specific requests
+        'rental value trends', 'rental trends over time', 'rental value chart',
+        'price trends', 'value trends', 'market trends chart',
+        'trends over time', 'time series', 'quarterly trends',
+        'line chart of', 'trend chart of', 'trend graph of',
+        
+        # Specific visualization requests
+        'show me a chart', 'give me a chart', 'i want to see a chart',
+        'can you create a chart', 'make a visualization'
     ]
     
-    # Check for explicit visualization requests - must be EXACT matches
-    has_visualization_keyword = any(keyword in user_input_lower for keyword in explicit_visualization_keywords)
+    # Check for visualization keywords
+    has_visualization_keyword = any(keyword in user_input_lower for keyword in visualization_keywords)
     
-    # STRICT: Common question words that should NEVER trigger charts
-    text_only_keywords = [
-        'what is', 'what are', 'how much', 'how many', 'when', 'where', 'why',
-        'summarize', 'summary', 'explain', 'describe', 'tell me about',
-        'average', 'total', 'price', 'rent', 'cost', 'value', 'trends',
-        'analysis', 'overview', 'insights', 'details', 'information'
-    ]
+    # Check for time-related terms that suggest trends
+    time_terms = ['over time', 'trends', 'quarterly', 'monthly', 'yearly', 'timeline', 'progression']
+    has_time_terms = any(term in user_input_lower for term in time_terms)
     
-    has_text_only_keywords = any(keyword in user_input_lower for keyword in text_only_keywords)
+    # Check for rental/value specific terms
+    rental_terms = ['rental', 'rent', 'value', 'price', 'cost', 'market']
+    has_rental_terms = any(term in user_input_lower for term in rental_terms)
     
-    # ONLY return True if user explicitly wants visualization AND doesn't use text-only keywords
-    # This makes it much harder to accidentally trigger charts
-    return has_visualization_keyword and not has_text_only_keywords
-
-
+    # Check for question words that suggest text-only responses
+    question_words = ['what', 'how', 'why', 'when', 'where', 'summarize', 'explain', 'describe', 'tell me about']
+    has_question_words = any(word in user_input_lower for word in question_words)
+    
+    # Return True if user explicitly wants visualization OR if they're asking about trends over time
+    # BUT NOT if they're asking general questions about trends
+    if has_visualization_keyword:
+        return True
+    elif has_time_terms and has_rental_terms and not has_question_words:
+        return True
+    else:
+        return False
 
 def detect_chart_type(user_input: str) -> str:
     """Detect the preferred chart type from user input"""
     user_input_lower = user_input.lower()
     
     # Check for explicit chart type requests first (highest priority)
-    # Look for exact matches first
     if 'bar chart' in user_input_lower or 'bar graph' in user_input_lower:
         return 'bar'
     elif 'pie chart' in user_input_lower or 'pie graph' in user_input_lower:
@@ -357,20 +482,30 @@ def detect_chart_type(user_input: str) -> str:
         return 'line'
     elif 'scatter plot' in user_input_lower or 'scatter chart' in user_input_lower:
         return 'scatter'
+    elif 'area chart' in user_input_lower or 'area graph' in user_input_lower:
+        return 'area'
     
-    # Then check for individual keywords - ONLY when combined with visualization words
-    # This prevents false positives from general terms like "trend", "series", etc.
+    # Check for trend-related terms that suggest line charts
+    if any(word in user_input_lower for word in ['trend', 'over time', 'time series', 'quarterly', 'monthly', 'yearly']):
+        return 'line'
+    
+    # Then check for individual keywords
     if any(word in user_input_lower for word in ['bar', 'column', 'vertical', 'horizontal']):
         return 'bar'
     elif any(word in user_input_lower for word in ['pie', 'circle', 'donut', 'sector']):
         return 'pie'
-    elif any(word in user_input_lower for word in ['line']):  # Removed 'trend', 'time', 'series'
+    elif any(word in user_input_lower for word in ['line']):
         return 'line'
     elif any(word in user_input_lower for word in ['scatter', 'point', 'correlation']):
         return 'scatter'
+    elif any(word in user_input_lower for word in ['area', 'filled']):
+        return 'area'
     
-    # If no specific chart type mentioned, default to bar chart
-    return 'bar'
+    # If no specific chart type mentioned, default to line chart for trends, bar for others
+    if 'trend' in user_input_lower or 'over time' in user_input_lower:
+        return 'line'
+    else:
+        return 'bar'
 
 def detect_definition_request(user_input: str) -> bool:
     """Detect if user is asking for a definition or explanation"""
@@ -409,6 +544,54 @@ def format_definition_response(response_text: str) -> str:
     
     return response_text
 
+def create_data_summary_table(data: Dict[str, Any], user_request: str = "") -> str:
+    """Create a summary table for the visualized data with user request context"""
+    if not data['values']:
+        return "No data available for summary."
+    
+    total = sum(data['values'])
+    avg = total / len(data['values'])
+    max_val = max(data['values'])
+    min_val = min(data['values'])
+    
+    # Generate context-specific header
+    if user_request:
+        user_request_lower = user_request.lower()
+        if 'investment housing' in user_request_lower:
+            header = "## 📊 Investment Housing Data Summary"
+        elif 'rental values' in user_request_lower or 'rental value' in user_request_lower:
+            header = "## 📊 Rental Values Data Summary"
+        elif 'private housing' in user_request_lower:
+            header = "## 📊 Private Housing Data Summary"
+        elif 'commercial' in user_request_lower:
+            header = "## 📊 Commercial Real Estate Data Summary"
+        elif 'trends' in user_request_lower or 'over time' in user_request_lower:
+            header = "## 📊 Trends Data Summary"
+        else:
+            header = "## 📊 Data Summary"
+    else:
+        header = "## 📊 Data Summary"
+    
+    summary = f"{header}\n\n"
+    summary += f"**Total Value**: {total:,.2f}\n\n"
+    summary += f"**Average**: {avg:,.2f}\n\n"
+    summary += f"**Range**: {min_val:,.2f} - {max_val:,.2f}\n\n"
+    
+    # Determine appropriate column headers based on data type
+    if any('Q' in cat for cat in data['categories']) or any('202' in cat for cat in data['categories']):
+        # Time-based data
+        summary += "| Time Period | Value | Percentage |\n"
+        summary += "|-------------|-------|------------|\n"
+    else:
+        # Category-based data
+        summary += "| Category | Value | Percentage |\n"
+        summary += "|----------|-------|------------|\n"
+    
+    for category, value in zip(data['categories'], data['values']):
+        percentage = (value / total * 100) if total > 0 else 0
+        summary += f"| {category} | {value:,.2f} | {percentage:.1f}% |\n"
+    
+    return summary
 
 # Initialize Streamlit app
 st.title("Markaz - Interactive Finance Assistant")
@@ -514,22 +697,24 @@ if prompt := st.chat_input("Ask a question about financial data or request a cha
         # Check if user wants visualization first
         is_visualization_request = detect_visualization_request(prompt)
         
-
-        
         if is_visualization_request:
             # Extract data from context for visualization
-            viz_data = extract_data_for_visualization(context)
+            viz_data = extract_data_for_visualization(context, prompt)
             
             if viz_data['values']:
                 # Detect preferred chart type
                 chart_type = detect_chart_type(prompt)
                 
-                # Create and display visualization ONLY - no text response
-                fig = create_visualization(viz_data, chart_type)
+                # Create and display visualization
+                fig = create_visualization(viz_data, chart_type, prompt)
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Store a minimal response for chat history
-                response = f"Generated {chart_type} chart with {len(viz_data['categories'])} data points"
+                # Create data summary table
+                summary_table = create_data_summary_table(viz_data, prompt)
+                st.markdown(summary_table)
+                
+                # Store response for chat history
+                response = f"Generated {chart_type} chart with {len(viz_data['categories'])} data points. The chart shows {chart_type} visualization of the requested data with a summary table below."
             else:
                 response = "No numerical data found in the context for visualization. Try asking about specific numbers, percentages, or values from the report."
                 st.warning("⚠️ No numerical data found in the context for visualization")
@@ -576,12 +761,14 @@ with st.sidebar:
     """)
     
     st.header("📈 Visualization Features")
-    st.info("Ask for charts and graphs using explicit keywords like:")
+    st.info("Ask for charts and graphs using keywords like:")
     st.markdown("""
     - **"Create a bar chart of..."**
     - **"Show me a pie chart for..."**
     - **"Make a line graph of..."**
     - **"Display a scatter plot of..."**
+    - **"Rental value trends over time"**
+    - **"Price trends chart"**
     """)
     
     st.header("🎯 Example Visualization Queries")
@@ -589,7 +776,8 @@ with st.sidebar:
     - "Create a bar chart of governorate prices"
     - "Show me a pie chart of market segments"
     - "Make a line graph of quarterly trends"
-    - "Display a scatter plot of property values"
+    - "Display rental value trends over time"
+    - "Show me a chart of market performance"
     """)
     
     st.header("📝 Text vs. Charts")
@@ -601,14 +789,14 @@ with st.sidebar:
     - "Tell me about..."
     """)
     
-    st.info("**Charts Only** for:")
+    st.info("**Charts + Summary** for:")
     st.markdown("""
     - "Create a chart of..."
     - "Show me a graph..."
     - "Visualize the data..."
+    - "Rental trends over time..."
+    - "Price trends chart..."
     """)
-    
-
     
     if st.button("Clear Chat History"):
         st.session_state.messages = []
