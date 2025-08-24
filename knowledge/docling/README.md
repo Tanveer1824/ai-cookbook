@@ -46,6 +46,59 @@ Execute the files in order to build and query the document database:
 
 Then open your browser and navigate to `http://localhost:8501` to interact with the document Q&A interface.
 
+### Quick Setup Script
+
+For convenience, you can use the automated setup script:
+
+```bash
+python setup_database.py
+```
+
+This script will run all the necessary processing steps in the correct order and verify the database is properly created.
+
+### Testing the Database
+
+After setup, you can test if the database is working correctly:
+
+```bash
+python test_database.py
+```
+
+This will verify:
+- Database connection
+- Table accessibility
+- Data integrity
+- Sample queries
+
+## Troubleshooting
+
+### Common Issues
+
+#### "Table 'docling' was not found" Error
+
+If you encounter this error when running the chat interface, it means the database hasn't been initialized yet. This happens when you try to run `5-chat.py` before running the processing scripts.
+
+**Solution:**
+1. Run the setup script: `python setup_database.py`
+2. Or manually run the scripts in order:
+   - `python 1-extraction.py`
+   - `python 2-chunking.py`
+   - `python 3-embedding.py`
+3. Then run the chat interface: `streamlit run 5-chat.py`
+
+#### Database Connection Issues
+
+If you get database connection errors:
+1. Ensure the `data/lancedb` directory exists
+2. Check that you have write permissions in the current directory
+3. Verify that LanceDB is properly installed: `pip install lancedb`
+
+#### Missing Dependencies
+
+If you get import errors:
+1. Install all requirements: `pip install -r requirements.txt`
+2. Ensure you're using Python 3.8+ with the correct virtual environment
+
 ## Document Processing
 
 ### Supported Input Formats

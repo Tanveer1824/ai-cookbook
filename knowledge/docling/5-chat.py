@@ -23,6 +23,19 @@ client = AzureOpenAI(
 # Make database path configurable for deployment
 DB_PATH = os.getenv("DB_PATH", "data/lancedb")
 
+def check_database_setup():
+    """Check if the database and table are properly set up."""
+    try:
+        db = lancedb.connect(DB_PATH)
+        # Try to list tables to see if the database exists
+        tables = db.table_names()
+        if "docling" in tables:
+            return True, "Database is ready"
+        else:
+            return False, "Table 'docling' not found in database"
+    except Exception as e:
+        return False, f"Database connection failed: {e}"
+
 def azure_openai_embedding(texts):
     """Custom embedding function using Azure OpenAI"""
     if isinstance(texts, str):
@@ -47,7 +60,28 @@ def init_db():
         LanceDB table object
     """
     db = lancedb.connect(DB_PATH)
-    return db.open_table("docling")
+    
+    # Check if the table exists
+    try:
+        table = db.open_table("docling")
+        return table
+    except Exception as e:
+        if "was not found" in str(e):
+            st.error("""
+            **Database table 'docling' not found!**
+            
+            The database needs to be initialized first. Please run the following scripts in order:
+            
+            1. **1-extraction.py** - Extract text from PDF
+            2. **2-chunking.py** - Split text into chunks  
+            3. **3-embedding.py** - Create embeddings and database
+            
+            After running these scripts, the chat interface will work properly.
+            """)
+            st.stop()
+        else:
+            st.error(f"Database error: {e}")
+            st.stop()
 
 
 def get_context(query: str, table, num_results: int = 5) -> str:
@@ -61,33 +95,58 @@ def get_context(query: str, table, num_results: int = 5) -> str:
     Returns:
         str: Concatenated context from relevant chunks with source information
     """
-    # Convert query to vector using Azure OpenAI
-    query_vector = azure_openai_embedding(query)[0]
-    
-    # Search using vector similarity
-    results = table.search(query=query_vector, query_type="vector").limit(num_results).to_pandas()
-    contexts = []
+    try:
+        # Convert query to vector using Azure OpenAI
+        query_vector = azure_openai_embedding(query)[0]
+        
+        # Search using vector similarity
+        results = table.search(query=query_vector, query_type="vector").limit(num_results).to_pandas()
+        
+        if results.empty:
+            return "No relevant information found in the database for your query."
+        
+        contexts = []
 
-    for _, row in results.iterrows():
-        # Extract metadata
-        filename = row["metadata"]["filename"]
-        page_numbers = row["metadata"]["page_numbers"]
-        title = row["metadata"]["title"]
+        for _, row in results.iterrows():
+            try:
+                # Extract metadata safely
+                metadata = row.get("metadata", {})
+                filename = metadata.get("filename") if metadata else None
+                page_numbers = metadata.get("page_numbers") if metadata else None
+                title = metadata.get("title") if metadata else None
+                text = row.get("text", "")
 
-        # Build source citation
-        source_parts = []
-        if filename:
-            source_parts.append(filename)
-        if page_numbers:
-            source_parts.append(f"p. {', '.join(str(p) for p in page_numbers)}")
+                # Build source citation
+                source_parts = []
+                if filename:
+                    source_parts.append(filename)
+                if page_numbers:
+                    # Handle page numbers as string or list
+                    if isinstance(page_numbers, str):
+                        page_parts = page_numbers.split(", ")
+                    else:
+                        page_parts = [str(p) for p in page_numbers] if page_numbers else []
+                    if page_parts:
+                        source_parts.append(f"p. {', '.join(page_parts)}")
 
-        source = f"\nSource: {' - '.join(source_parts)}"
-        if title:
-            source += f"\nTitle: {title}"
+                source = f"\nSource: {' - '.join(source_parts)}" if source_parts else ""
+                if title:
+                    source += f"\nTitle: {title}"
 
-        contexts.append(f"{row['text']}{source}")
+                contexts.append(f"{text}{source}")
+                
+            except Exception as e:
+                st.warning(f"Warning: Could not process row due to error: {e}")
+                continue
 
-    return "\n\n".join(contexts)
+        if not contexts:
+            return "No relevant information found in the database for your query."
+            
+        return "\n\n".join(contexts)
+        
+    except Exception as e:
+        st.error(f"Error searching database: {e}")
+        return "Sorry, there was an error searching the database. Please try again."
 
 
 def get_chat_response(messages, context: str) -> str:
@@ -596,6 +655,21 @@ def create_data_summary_table(data: Dict[str, Any], user_request: str = "") -> s
 # Initialize Streamlit app
 st.title("Markaz - Interactive Finance Assistant")
 st.markdown("Ask questions about financial data and get AI-powered insights!")
+
+# Check database setup first
+is_ready, status_message = check_database_setup()
+if not is_ready:
+    st.error(f"**Database Setup Issue:** {status_message}")
+    st.info("""
+    **To fix this issue, please run the following scripts in order:**
+    
+    1. **1-extraction.py** - Extract text from PDF
+    2. **2-chunking.py** - Split text into chunks  
+    3. **3-embedding.py** - Create embeddings and database
+    
+    After running these scripts, refresh this page and the chat interface will work properly.
+    """)
+    st.stop()
 
 # Basic security check for production
 if os.getenv("ENVIRONMENT") == "production":
