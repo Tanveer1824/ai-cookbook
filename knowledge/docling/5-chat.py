@@ -693,6 +693,13 @@ if "messages" not in st.session_state:
 
 # Initialize database connection
 table = init_db()
+    """Initialize database connection.
+
+    Returns:
+        LanceDB table object
+    """
+    db = lancedb.connect(DB_PATH)
+    return db.open_table("docling")
 
 # Display chat messages
 if st.session_state.messages:
